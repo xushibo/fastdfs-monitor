@@ -414,7 +414,7 @@ static PyObject* save(PyObject* self, PyObject* args) {
 			/ (double)RAND_MAX);
 	}
 
-	sprintf(output_str,"%s server_count=%d, server_index=%d\n", output_str, g_tracker_group.server_count, g_tracker_group.server_index);
+	sprintf(output_str,"%sserver_count=%d, server_index=%d\n", output_str, g_tracker_group.server_count, g_tracker_group.server_index);
 
 	pTrackerServer = tracker_get_connection();
 	if (pTrackerServer == NULL)
@@ -426,12 +426,32 @@ static PyObject* save(PyObject* self, PyObject* args) {
 
 	list_all_groups(NULL,output_str);
 
+	save_db(key,output_str);
+
     return Py_BuildValue("s", "save success!");
 }
 
+static PyObject* load(PyObject* self, PyObject* args) {
+	char *temp_str;
+	char output_str[4096*10];
+	char key[128];
+	memset(key,0,128);
+	memset(output_str,0,4096*10);
+
+	if (!PyArg_ParseTuple(args, "s", key)) {
+        return NULL;
+    }
+
+	temp_str = load_db(key);
+	strncpy(output_str,temp_str,4096*10);
+	free(temp_str);
+
+    return Py_BuildValue("s", output_str);
+}
 static PyMethodDef py_fdfs_monitor_methods[] = {
     {"list", (PyCFunction)list, METH_VARARGS, NULL},
     {"save", (PyCFunction)save, METH_VARARGS, NULL},
+    {"load", (PyCFunction)load, METH_VARARGS, NULL},
     {NULL,NULL,0,NULL}
 };
 

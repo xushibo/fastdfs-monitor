@@ -2,7 +2,9 @@
 import py_fdfs_monitor
 from wsgiref.simple_server import make_server
 URL_PATTERNS= (
-    ('hello/','say_hello'),
+    ('/','list'),
+    ('/save','save'),
+    ('/load','load'),
     )
 class Dispatcher(object):
     def _match(self,path):
@@ -19,8 +21,16 @@ class Dispatcher(object):
         else:
             start_response("404 NOT FOUND",[('Content-type', 'text/html')])
             return ["<h1>Page dose not exists!</h1>"]
-def say_hello(environ, start_response):
+def list(environ, start_response):
     str = py_fdfs_monitor.list()
+    start_response("200 OK",[('Content-type', 'text/html')])
+    return ["<html><pre>%s</pre><html>" % str]
+def save(environ, start_response):
+    str = py_fdfs_monitor.save("123")
+    start_response("200 OK",[('Content-type', 'text/html')])
+    return ["<html><pre>%s</pre><html>" % str]
+def load(environ, start_response):
+    str = py_fdfs_monitor.load("123")
     start_response("200 OK",[('Content-type', 'text/html')])
     return ["<html><pre>%s</pre><html>" % str]
 app = Dispatcher()
