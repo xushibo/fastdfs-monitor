@@ -20,9 +20,9 @@ class Dispatcher(object):
             start_response("404 NOT FOUND",[('Content-type', 'text/html')])
             return ["<h1>Page dose not exists!</h1>"]
 def say_hello(environ, start_response):
-    (str0,str1,str2) = py_fdfs_monitor.list()
+    str = py_fdfs_monitor.list()
     start_response("200 OK",[('Content-type', 'text/html')])
-    return ["<html><pre>%s%s%s</pre><html>" % (str0,str1,str2)]
+    return ["<html><pre>%s</pre><html>" % str]
 app = Dispatcher()
 httpd = make_server('', 8000, app)
 print "Serving on port 8000..."

@@ -8,6 +8,8 @@
 
 #include <Python.h>
 
+#include <leveldb/c.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +26,8 @@
 static ConnectionInfo *pTrackerServer;
 
 static int list_all_groups(const char *group_name,char *output_str);
+static int save_db(char* key,char* value);
+static char *load_db(char *key);
 
 static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 {
@@ -46,9 +50,7 @@ static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 	int k;
 	int max_last_source_update;
 
-	char temp_str[4096];
-
-	sprintf(temp_str, "group name = %s\n" \
+	sprintf(output_str, "%sgroup name = %s\n" \
 		"disk total space = "INT64_PRINTF_FORMAT" MB\n" \
 		"disk free space = "INT64_PRINTF_FORMAT" MB\n" \
 		"trunk free space = "INT64_PRINTF_FORMAT" MB\n" \
@@ -60,6 +62,7 @@ static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 		"subdir count per path = %d\n" \
 		"current write server index = %d\n" \
 		"current trunk file id = %d\n\n", \
+		output_str,
 		pGroupStat->group_name, \
 		pGroupStat->total_mb, \
 		pGroupStat->free_mb, \
@@ -73,7 +76,6 @@ static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 		pGroupStat->current_write_server, \
 		pGroupStat->current_trunk_file_id
 	);
-	strcat(output_str,temp_str);
 
 	result = tracker_list_servers(pTrackerServer, \
 		pGroupStat->group_name, NULL, \
@@ -175,8 +177,7 @@ static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 			*szUpTime = '\0';
 		}
 
-		memset(temp_str,0,4096);
-		sprintf(temp_str, "\tStorage %d:\n" \
+		sprintf(output_str, "%s\tStorage %d:\n" \
 			"\t\tid = %s\n" \
 			"\t\tip_addr = %s%s  %s\n" \
 			"\t\thttp domain = %s\n" \
@@ -235,6 +236,7 @@ static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 			"\t\tlast_source_update = %s\n" \
 			"\t\tlast_sync_update = %s\n"   \
 			"\t\tlast_synced_timestamp = %s %s\n",  \
+			output_str,\
 			++k, pStorage->id, pStorage->ip_addr, \
 			szHostnamePrompt, get_storage_status_caption( \
 			    pStorage->status), pStorage->domain_name, \
@@ -303,7 +305,6 @@ static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 				"%Y-%m-%d %H:%M:%S", \
 				szSyncedTimestamp, sizeof(szSyncedTimestamp)),\
 			szSyncedDelaySeconds);
-		strcat(output_str,temp_str);
 	}
 
 	return 0;
@@ -331,7 +332,7 @@ static int list_all_groups(const char *group_name,char *output_str)
 	pGroupEnd = group_stats + group_count;
 	if (group_name == NULL)
 	{
-		sprintf(output_str, "group count: %d\n", group_count);
+		sprintf(output_str, "%sgroup count: %d\n", output_str, group_count);
 		i = 0;
 		for (pGroupStat=group_stats; pGroupStat<pGroupEnd; \
 			pGroupStat++)
@@ -357,13 +358,8 @@ static int list_all_groups(const char *group_name,char *output_str)
 }
 
 static PyObject* list(PyObject* self, PyObject* args) {
-    //if (!PyArg_ParseTuple(args, "ii", &num1, &num2)) {
-    //    return NULL;
-    //}
 	char output_str[4096*10];
-	char temp_str[2][1024];
 	memset(output_str,0,4096*10);
-	memset(temp_str,0,1024);
 
 	int result;
 	if ((result=fdfs_client_init("/etc/fdfs/client.conf")) != 0)
@@ -379,7 +375,7 @@ static PyObject* list(PyObject* self, PyObject* args) {
 			/ (double)RAND_MAX);
 	}
 
-	sprintf(temp_str[0],"server_count=%d, server_index=%d\n", g_tracker_group.server_count, g_tracker_group.server_index);
+	sprintf(output_str,"%sserver_count=%d, server_index=%d\n", output_str, g_tracker_group.server_count, g_tracker_group.server_index);
 
 	pTrackerServer = tracker_get_connection();
 	if (pTrackerServer == NULL)
@@ -387,18 +383,143 @@ static PyObject* list(PyObject* self, PyObject* args) {
 		fdfs_client_destroy();
 		return Py_BuildValue("i",errno != 0 ? errno : ECONNREFUSED);
 	}
-	sprintf(temp_str[1],"\ntracker server is %s:%d\n\n", pTrackerServer->ip_addr, pTrackerServer->port);
+	sprintf(output_str,"%s\ntracker server is %s:%d\n\n", output_str, pTrackerServer->ip_addr, pTrackerServer->port);
 
 	list_all_groups(NULL,output_str);
 
-    return Py_BuildValue("sss", temp_str[0], temp_str[1], output_str);
+    return Py_BuildValue("s", output_str);
+}
+
+static PyObject* save(PyObject* self, PyObject* args) {
+	char output_str[4096*10];
+	char key[128];
+	memset(output_str,0,4096*10);
+	memset(key,0,128);
+
+	if (!PyArg_ParseTuple(args, "s", key)) {
+        return NULL;
+    }
+
+	int result;
+	if ((result=fdfs_client_init("/etc/fdfs/client.conf")) != 0)
+	{
+		return Py_BuildValue("i",result);
+	}
+	if (g_tracker_group.server_count > 1)
+	{
+		srand(time(NULL));
+		rand();  //discard the first
+		g_tracker_group.server_index = (int)( \
+			(g_tracker_group.server_count * (double)rand()) \
+			/ (double)RAND_MAX);
+	}
+
+	sprintf(output_str,"%s server_count=%d, server_index=%d\n", output_str, g_tracker_group.server_count, g_tracker_group.server_index);
+
+	pTrackerServer = tracker_get_connection();
+	if (pTrackerServer == NULL)
+	{
+		fdfs_client_destroy();
+		return Py_BuildValue("i",errno != 0 ? errno : ECONNREFUSED);
+	}
+	sprintf(output_str,"%s\ntracker server is %s:%d\n\n", output_str, pTrackerServer->ip_addr, pTrackerServer->port);
+
+	list_all_groups(NULL,output_str);
+
+    return Py_BuildValue("s", "save success!");
 }
 
 static PyMethodDef py_fdfs_monitor_methods[] = {
     {"list", (PyCFunction)list, METH_VARARGS, NULL},
+    {"save", (PyCFunction)save, METH_VARARGS, NULL},
     {NULL,NULL,0,NULL}
 };
 
 PyMODINIT_FUNC initpy_fdfs_monitor() {
     Py_InitModule3("py_fdfs_monitor", py_fdfs_monitor_methods, "My first extension module.");
+}
+
+static int save_db(char* key,char* value)
+{
+	char *err = NULL;
+	leveldb_t *db;
+	leveldb_options_t *options;
+    leveldb_writeoptions_t* woptions;
+
+	options = leveldb_options_create();
+
+	leveldb_options_set_create_if_missing(options,1);
+
+	woptions = leveldb_writeoptions_create();
+
+	db = leveldb_open(options,"ldb_fdfs_monitor",&err);
+
+	if(err != NULL){
+		printf("%s",err);
+		goto ERROR;
+	}
+
+	leveldb_put(db, woptions, key, strlen(key), value, strlen(value), &err);
+
+	if(err != NULL){
+		printf("%s",err);
+		goto ERROR;
+	}
+
+	leveldb_writeoptions_destroy(woptions);
+	leveldb_options_destroy(options);
+	leveldb_close(db);
+	return 0;
+
+ERROR:
+	leveldb_writeoptions_destroy(woptions);
+	leveldb_options_destroy(options);
+	leveldb_close(db);
+	return 1;
+}
+
+static char* load_db(char* key)
+{
+	char *err = NULL;
+	char *value = NULL;
+	leveldb_t *db;
+	leveldb_options_t *options;
+	leveldb_readoptions_t* roptions;
+
+	size_t key_len;
+
+	options = leveldb_options_create();
+
+	leveldb_options_set_create_if_missing(options,1);
+
+	roptions = leveldb_readoptions_create();
+
+	db = leveldb_open(options,"ldb_fdfs_monitor",&err);
+
+	if(err != NULL){
+		printf("%s",err);
+		goto ERROR;
+	}
+
+	value = leveldb_get(db, roptions, key, strlen(key), &key_len, &err);
+
+	if(err != NULL){
+		printf("%s",err);
+		goto ERROR;
+	}
+
+	leveldb_readoptions_destroy(roptions);
+	leveldb_options_destroy(options);
+	leveldb_close(db);
+
+	if(value != NULL){
+		return value;
+	}
+	return NULL;
+
+ERROR:
+	leveldb_readoptions_destroy(roptions);
+	leveldb_options_destroy(options);
+	leveldb_close(db);
+	return NULL;
 }
