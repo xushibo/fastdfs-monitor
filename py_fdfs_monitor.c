@@ -392,11 +392,10 @@ static PyObject* list(PyObject* self, PyObject* args) {
 
 static PyObject* save(PyObject* self, PyObject* args) {
 	char output_str[4096*10];
-	char key[128];
+	char *key;
 	memset(output_str,0,4096*10);
-	memset(key,0,128);
 
-	if (!PyArg_ParseTuple(args, "s", key)) {
+	if (!PyArg_ParseTuple(args, "s", &key)) {
         return NULL;
     }
 
@@ -426,23 +425,25 @@ static PyObject* save(PyObject* self, PyObject* args) {
 
 	list_all_groups(NULL,output_str);
 
-	save_db(key,output_str);
-
-    return Py_BuildValue("s", "save success!");
+	if(save_db(key,output_str) == 0)
+		return Py_BuildValue("s", "save success!");
+	return Py_BuildValue("s", "save failed!");
 }
 
 static PyObject* load(PyObject* self, PyObject* args) {
 	char *temp_str;
 	char output_str[4096*10];
-	char key[128];
-	memset(key,0,128);
+	char *key;
 	memset(output_str,0,4096*10);
 
-	if (!PyArg_ParseTuple(args, "s", key)) {
+	if (!PyArg_ParseTuple(args, "s", &key)) {
         return NULL;
     }
 
 	temp_str = load_db(key);
+	if(temp_str == NULL){
+		return Py_BuildValue("s", "load error!");
+	}
 	strncpy(output_str,temp_str,4096*10);
 	free(temp_str);
 
@@ -486,6 +487,7 @@ static int save_db(char* key,char* value)
 		goto ERROR;
 	}
 
+	printf("%s\n",key);
 	leveldb_writeoptions_destroy(woptions);
 	leveldb_options_destroy(options);
 	leveldb_close(db);
@@ -510,7 +512,7 @@ static char* load_db(char* key)
 
 	options = leveldb_options_create();
 
-	leveldb_options_set_create_if_missing(options,1);
+	//leveldb_options_set_create_if_missing(options,1);
 
 	roptions = leveldb_readoptions_create();
 
@@ -528,6 +530,7 @@ static char* load_db(char* key)
 		goto ERROR;
 	}
 
+	printf("%s",key);
 	leveldb_readoptions_destroy(roptions);
 	leveldb_options_destroy(options);
 	leveldb_close(db);

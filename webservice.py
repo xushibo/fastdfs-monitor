@@ -26,11 +26,11 @@ def list(environ, start_response):
     start_response("200 OK",[('Content-type', 'text/html')])
     return ["<html><pre>%s</pre><html>" % str]
 def save(environ, start_response):
-    str = py_fdfs_monitor.save("123")
+    str = py_fdfs_monitor.save('123')
     start_response("200 OK",[('Content-type', 'text/html')])
     return ["<html><pre>%s</pre><html>" % str]
 def load(environ, start_response):
-    str = py_fdfs_monitor.load("123")
+    str = py_fdfs_monitor.load('123')
     start_response("200 OK",[('Content-type', 'text/html')])
     return ["<html><pre>%s</pre><html>" % str]
 app = Dispatcher()
