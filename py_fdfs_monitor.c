@@ -26,8 +26,9 @@
 static ConnectionInfo *pTrackerServer;
 
 static int list_all_groups(const char *group_name,char *output_str);
-static int save_db(char* key,char* value);
-static char *load_db(char *key);
+static int save_db(char *key,char *value);
+static int load_db(char *key,char *cp_value,size_t size);
+static int get_first_key_db(char *cp_value,size_t size);
 
 static int list_storages(FDFSGroupStat *pGroupStat,char *output_str)
 {
@@ -425,13 +426,13 @@ static PyObject* save(PyObject* self, PyObject* args) {
 
 	list_all_groups(NULL,output_str);
 
-	if(save_db(key,output_str) == 0)
-		return Py_BuildValue("s", "save success!");
-	return Py_BuildValue("s", "save failed!");
+	if(save_db(key,output_str) != 0){
+		return Py_BuildValue("s", "save failed!");
+	}
+	return Py_BuildValue("s", "save success!");
 }
 
 static PyObject* load(PyObject* self, PyObject* args) {
-	char *temp_str;
 	char output_str[4096*10];
 	char *key;
 	memset(output_str,0,4096*10);
@@ -440,19 +441,29 @@ static PyObject* load(PyObject* self, PyObject* args) {
         return NULL;
     }
 
-	temp_str = load_db(key);
-	if(temp_str == NULL){
+	if(load_db(key, output_str, sizeof(output_str)) != 0){
 		return Py_BuildValue("s", "load error!");
 	}
-	strncpy(output_str,temp_str,4096*10);
-	free(temp_str);
 
     return Py_BuildValue("s", output_str);
 }
+
+static PyObject* get_first_key(PyObject* self, PyObject* args) {
+	char output_str[1024];
+	memset(output_str,0,1024);
+
+	if(get_first_key_db(output_str,1024) != 0){
+		return Py_BuildValue("s", "get error!");
+	}
+
+    return Py_BuildValue("s", output_str);
+}
+
 static PyMethodDef py_fdfs_monitor_methods[] = {
     {"list", (PyCFunction)list, METH_VARARGS, NULL},
     {"save", (PyCFunction)save, METH_VARARGS, NULL},
     {"load", (PyCFunction)load, METH_VARARGS, NULL},
+    {"get_first_key", (PyCFunction)get_first_key, METH_VARARGS, NULL},
     {NULL,NULL,0,NULL}
 };
 
@@ -460,12 +471,74 @@ PyMODINIT_FUNC initpy_fdfs_monitor() {
     Py_InitModule3("py_fdfs_monitor", py_fdfs_monitor_methods, "My first extension module.");
 }
 
+static int get_first_key_db(char *cp_value,size_t size)
+{
+	char *err = NULL;
+	const char *value = NULL;
+	leveldb_t *db = NULL;
+	leveldb_options_t *options = NULL;
+	leveldb_readoptions_t* roptions = NULL;
+	leveldb_iterator_t* iterator = NULL;
+
+	size_t key_len;
+
+	options = leveldb_options_create();
+
+	leveldb_options_set_create_if_missing(options,1);
+
+	roptions = leveldb_readoptions_create();
+
+	db = leveldb_open(options,"ldb_fdfs_monitor",&err);
+
+	if(err != NULL){
+		printf("%s",err);
+		leveldb_free(err);
+		goto ERROR;
+	}
+
+	iterator = leveldb_create_iterator(db, roptions);
+
+	leveldb_iter_seek_to_first(iterator);
+
+	if(leveldb_iter_valid(iterator) == 0){
+		goto ERROR;
+	}
+	value = leveldb_iter_key(iterator, &key_len);
+
+	if(err != NULL){
+		printf("%s",err);
+		leveldb_free(err);
+		goto ERROR;
+	}
+
+	if(value != NULL){
+		strncpy(cp_value,value,size);
+		cp_value[key_len] = '\0';
+		value = NULL;
+	}
+
+	leveldb_iter_destroy(iterator);
+	leveldb_readoptions_destroy(roptions);
+	leveldb_options_destroy(options);
+	leveldb_close(db);
+
+	return 0;
+
+ERROR:
+	leveldb_iter_destroy(iterator);
+	leveldb_readoptions_destroy(roptions);
+	leveldb_options_destroy(options);
+	leveldb_close(db);
+	return -1;
+
+}
+
 static int save_db(char* key,char* value)
 {
 	char *err = NULL;
-	leveldb_t *db;
-	leveldb_options_t *options;
-    leveldb_writeoptions_t* woptions;
+	leveldb_t *db = NULL;
+	leveldb_options_t *options = NULL;
+    leveldb_writeoptions_t* woptions = NULL;
 
 	options = leveldb_options_create();
 
@@ -477,6 +550,7 @@ static int save_db(char* key,char* value)
 
 	if(err != NULL){
 		printf("%s",err);
+		leveldb_free(err);
 		goto ERROR;
 	}
 
@@ -484,10 +558,10 @@ static int save_db(char* key,char* value)
 
 	if(err != NULL){
 		printf("%s",err);
+		leveldb_free(err);
 		goto ERROR;
 	}
 
-	printf("%s\n",key);
 	leveldb_writeoptions_destroy(woptions);
 	leveldb_options_destroy(options);
 	leveldb_close(db);
@@ -497,22 +571,22 @@ ERROR:
 	leveldb_writeoptions_destroy(woptions);
 	leveldb_options_destroy(options);
 	leveldb_close(db);
-	return 1;
+	return -1;
 }
 
-static char* load_db(char* key)
+static int load_db(char* key,char *cp_value,size_t size)
 {
 	char *err = NULL;
 	char *value = NULL;
-	leveldb_t *db;
-	leveldb_options_t *options;
-	leveldb_readoptions_t* roptions;
+	leveldb_t *db = NULL;
+	leveldb_options_t *options = NULL;
+	leveldb_readoptions_t* roptions = NULL;
 
 	size_t key_len;
 
 	options = leveldb_options_create();
 
-	//leveldb_options_set_create_if_missing(options,1);
+	leveldb_options_set_create_if_missing(options,1);
 
 	roptions = leveldb_readoptions_create();
 
@@ -520,6 +594,7 @@ static char* load_db(char* key)
 
 	if(err != NULL){
 		printf("%s",err);
+		leveldb_free(err);
 		goto ERROR;
 	}
 
@@ -527,22 +602,26 @@ static char* load_db(char* key)
 
 	if(err != NULL){
 		printf("%s",err);
+		leveldb_free(err);
 		goto ERROR;
 	}
 
-	printf("%s",key);
+	if(value != NULL){
+		strncpy(cp_value,value,size);
+		cp_value[key_len] = '\0';
+		leveldb_free(value);
+		value = NULL;
+	}
+
 	leveldb_readoptions_destroy(roptions);
 	leveldb_options_destroy(options);
 	leveldb_close(db);
 
-	if(value != NULL){
-		return value;
-	}
-	return NULL;
+	return 0;
 
 ERROR:
 	leveldb_readoptions_destroy(roptions);
 	leveldb_options_destroy(options);
 	leveldb_close(db);
-	return NULL;
+	return -1;
 }
