@@ -50,13 +50,26 @@ def list_all(environ, start_response):
 	str = ''
 	while key < now_time:
 		key_str = "%d" %key
+		temp = time.localtime(key)
+		str += time.strftime('%Y-%m-%d %H:%M:%S', temp)
+		str += '\t'
 		value_str = py_fdfs_monitor.load(key_str)
 		total_space = re.findall(r'disk total space = .*MB',value_str)
+		free_space = re.findall(r'disk free space = .*MB',value_str)
 		if (len(total_space) != 0) :
 			str += total_space[0]
-			str += '\n'
+			str += '\t'
+		else :
+			str += 'disk total space = data miss'
+			str += '\t'
+		if (len(free_space) != 0) :
+			str += free_space[0]
+			str += '\t'
+		else :
+			str += 'disk free space = data miss'
+			str += '\t'
+		str += '\n'
 		key = key + 60
-		print key
 	start_response("200 OK",[('Content-type', 'text/html')])
 	return ["<html><pre>%s</pre><html>" % str]
 app = Dispatcher()
