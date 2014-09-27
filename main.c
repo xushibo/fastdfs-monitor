@@ -32,6 +32,20 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 
+#include "config.h"
+
+struct configItem g_config_list[] = {
+	{"mysql_server", ""},
+	{"db_name", ""},
+	{"db_user", ""},
+	{"db_pwd", ""}
+};
+
+#define DB_SERVER		g_config_list[0].value
+#define DB_NAME			g_config_list[1].value
+#define DB_USER			g_config_list[2].value
+#define DB_PWD			g_config_list[3].value
+
 static ConnectionInfo *pTrackerServer;
 
 static int list_all_groups(const char *group_name,char *output_str);
@@ -514,33 +528,38 @@ ERROR:
 
 #ifdef USE_MYSQL
 #include <mysql.h>
-#define DB_SERVER		"172.16.10.129"
-#define DB_NAME			"fastdfs"
-#define DB_USER			"root"
-#define DB_PWD			"root"
 static int save_db(char* key,char* value)
 {
-	MYSQL_RES *query_result;
-	MYSQL *db,mysql;
+	MYSQL_RES *query_result = NULL;
+	MYSQL *db = NULL,mysql;
 	int query_error;
+	char query_string[4096 * 10];
+	memset(query_string, 0, 4096 * 10);
 
 	mysql_init(&mysql);
 	db = mysql_real_connect(&mysql, DB_SERVER, DB_USER, DB_PWD, DB_NAME,0,0,0);
 
 	if(db == NULL){
 		printf(mysql_error(&mysql));
-		return -1;
+		printf("\n");
+		goto ERROR;
 	}
 
-	query_error = mysql_query(db, "show tables");
+	//CREATE TABLE raw_data( id TINYINT UNSIGNED NOT NULL AUTO_INCREMENT, datatime VARCHAR(20) NOT NULL, value VARCHAR(40960) NOT NULL, PRIMARY KEY(id)) DEFAULT charset=utf8;
+	snprintf(query_string, 4096 * 10, "INSERT INTO raw_data(datatime,value)VALUES('%s','%s')" ,key ,value);
+	//printf("%s\n",query_string);
+	query_error = mysql_query(db, query_string);
 
 	if(query_error != 0){
 		printf(mysql_error(db));
-		return -1;
+		printf("\n");
+		goto ERROR;
 	}
 
 	query_result = mysql_store_result(db);
 
+	if(query_result == NULL)
+		return 0;
 	MYSQL_FIELD *fileds;
 	MYSQL_ROW row;
 	unsigned int i, num_fields;
@@ -556,6 +575,10 @@ static int save_db(char* key,char* value)
 	}
 	mysql_close(db);
 	return 0;
+ERROR:
+	if(db != NULL)
+		mysql_close(db);
+	return -1;
 }
 #endif
 
@@ -590,7 +613,6 @@ static void* save(time_t job_time,void *arg) {
 		return NULL;
 	}
 	sprintf(output_str,"%s\ntracker server is %s:%d\n\n", output_str, pTrackerServer->ip_addr, pTrackerServer->port);
-
 	
 	list_all_groups(NULL,output_str);
 
@@ -608,6 +630,8 @@ int main()
 	log_init();
 	g_log_context.log_level = LOG_INFO;
 	
+	config("fdfs_jobs_monitor.config", g_config_list, sizeof(g_config_list)/sizeof(struct configItem));
+
 	struct job job;
 	job_service(&job);
 	job.call = save;
