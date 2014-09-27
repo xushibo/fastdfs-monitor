@@ -464,6 +464,7 @@ static int list_all_groups(const char *group_name,char *output_str)
 	return 0;
 }
 
+#ifdef USE_LEVEL_DB
 static int save_db(char* key,char* value)
 {
 	char *err = NULL;
@@ -474,6 +475,8 @@ static int save_db(char* key,char* value)
 	options = leveldb_options_create();
 
 	leveldb_options_set_create_if_missing(options,1);
+
+	//leveldb_options_set_error_if_exists(options,1);
 
 	woptions = leveldb_writeoptions_create();
 
@@ -499,11 +502,62 @@ static int save_db(char* key,char* value)
 	return 0;
 
 ERROR:
-	leveldb_writeoptions_destroy(woptions);
-	leveldb_options_destroy(options);
-	leveldb_close(db);
+	if(woptions != NULL)
+		leveldb_writeoptions_destroy(woptions);
+	if(options != NULL)
+		leveldb_options_destroy(options);
+	if(db != NULL)
+		leveldb_close(db);
 	return -1;
 }
+#endif
+
+#ifdef USE_MYSQL
+#include <mysql.h>
+#define DB_SERVER		"172.16.10.129"
+#define DB_NAME			"fastdfs"
+#define DB_USER			"root"
+#define DB_PWD			"root"
+static int save_db(char* key,char* value)
+{
+	MYSQL_RES *query_result;
+	MYSQL *db,mysql;
+	int query_error;
+
+	mysql_init(&mysql);
+	db = mysql_real_connect(&mysql, DB_SERVER, DB_USER, DB_PWD, DB_NAME,0,0,0);
+
+	if(db == NULL){
+		printf(mysql_error(&mysql));
+		return -1;
+	}
+
+	query_error = mysql_query(db, "show tables");
+
+	if(query_error != 0){
+		printf(mysql_error(db));
+		return -1;
+	}
+
+	query_result = mysql_store_result(db);
+
+	MYSQL_FIELD *fileds;
+	MYSQL_ROW row;
+	unsigned int i, num_fields;
+
+	num_fields = mysql_num_fields(query_result);
+	fileds = mysql_fetch_fields(query_result);
+
+	while((row = mysql_fetch_row(query_result)) != NULL){
+		for(i = 0;i != num_fields;++i){
+			printf("%s \t", row[i]);
+		}
+		printf("\n");
+	}
+	mysql_close(db);
+	return 0;
+}
+#endif
 
 static void* save(time_t job_time,void *arg) {
 	char output_str[4096*10];

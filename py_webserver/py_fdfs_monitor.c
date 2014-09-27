@@ -698,8 +698,11 @@ static int load_db(char* key,char *cp_value,size_t size)
 	return 0;
 
 ERROR:
-	leveldb_readoptions_destroy(roptions);
-	leveldb_options_destroy(options);
-	leveldb_close(db);
+	if(roptions != NULL)
+		leveldb_readoptions_destroy(roptions);
+	if(options != NULL)
+		leveldb_options_destroy(options);
+	if(db != NULL)
+		leveldb_close(db);
 	return -1;
 }
