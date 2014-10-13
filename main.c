@@ -38,13 +38,17 @@ struct configItem g_config_list[] = {
 	{"mysql_server", ""},
 	{"db_name", ""},
 	{"db_user", ""},
-	{"db_pwd", ""}
+	{"db_pwd", ""},
+	{"log_name", ""}
 };
+
+int g_log_fd;
 
 #define DB_SERVER		g_config_list[0].value
 #define DB_NAME			g_config_list[1].value
 #define DB_USER			g_config_list[2].value
 #define DB_PWD			g_config_list[3].value
+#define LOG_NAME		g_config_list[4].value
 
 static ConnectionInfo *pTrackerServer;
 
@@ -354,7 +358,7 @@ int tracker_list_groups(ConnectionInfo *pTrackerServer, \
 	if ((result=tcpsenddata_nb(conn->sock, &header, \
 			sizeof(header), g_fdfs_network_timeout)) != 0)
 	{
-		printf("file: "__FILE__", line: %d, " \
+		logError("file: "__FILE__", line: %d, " \
 			"send data to tracker server %s:%d fail, " \
 			"errno: %d, error info: %s", __LINE__, \
 			pTrackerServer->ip_addr, \
@@ -497,7 +501,7 @@ static int save_db(char* key,char* value)
 	db = leveldb_open(options,"ldb_fdfs_monitor",&err);
 
 	if(err != NULL){
-		printf("%s\n",err);
+		logError("%s",err);
 		leveldb_free(err);
 		goto ERROR;
 	}
@@ -505,7 +509,7 @@ static int save_db(char* key,char* value)
 	leveldb_put(db, woptions, key, strlen(key), value, strlen(value), &err);
 
 	if(err != NULL){
-		printf("%s\n",err);
+		logError("%s",err);
 		leveldb_free(err);
 		goto ERROR;
 	}
@@ -528,31 +532,47 @@ ERROR:
 
 #ifdef USE_MYSQL
 #include <mysql.h>
-static int save_db(char* key,char* value)
+
+/*
+drop table raw_data;
+create table raw_data(
+id bigint AUTO_INCREMENT,
+datatime VARCHAR(32) not null,
+value VARCHAR(409600) not null,
+PRIMARY KEY(id)
+)DEFAULT charset=utf8;
+drop table user;
+create table user(
+username varchar(16) primary key,
+password varchar(16) not null
+);
+drop table storage;
+create table storage(
+id bigint AUTO_INCREMENT primary key,
+time varchar(32)not null,
+groupId int not null,
+serverId int not null,
+ip varchar(256),
+total int,
+free int,
+threshold int
+);
+drop table groupStorage;
+create table groupStorage(
+groupId int primary key,
+groupThreshold int
+);
+*/
+
+static int save_mysql(MYSQL *db,char *query_str)
 {
-	MYSQL_RES *query_result = NULL;
-	MYSQL *db = NULL,mysql;
 	int query_error;
-	char query_string[4096 * 10];
-	memset(query_string, 0, 4096 * 10);
-
-	mysql_init(&mysql);
-	db = mysql_real_connect(&mysql, DB_SERVER, DB_USER, DB_PWD, DB_NAME,0,0,0);
-
-	if(db == NULL){
-		printf(mysql_error(&mysql));
-		printf("\n");
-		goto ERROR;
-	}
-
-	//CREATE TABLE raw_data( id TINYINT UNSIGNED NOT NULL AUTO_INCREMENT, datatime VARCHAR(20) NOT NULL, value VARCHAR(40960) NOT NULL, PRIMARY KEY(id)) DEFAULT charset=utf8;
-	snprintf(query_string, 4096 * 10, "INSERT INTO raw_data(datatime,value)VALUES('%s','%s')" ,key ,value);
-	//printf("%s\n",query_string);
-	query_error = mysql_query(db, query_string);
+	MYSQL_RES *query_result = NULL;
+	
+	query_error = mysql_query(db, query_str);
 
 	if(query_error != 0){
-		printf(mysql_error(db));
-		printf("\n");
+		logError(mysql_error(db));
 		goto ERROR;
 	}
 
@@ -569,10 +589,80 @@ static int save_db(char* key,char* value)
 
 	while((row = mysql_fetch_row(query_result)) != NULL){
 		for(i = 0;i != num_fields;++i){
-			printf("%s \t", row[i]);
+			logError("%s \t", row[i]);
 		}
-		printf("\n");
 	}
+
+	return 0;
+ERROR:
+	return -1;
+}
+
+static int save_db(char* key,char* value)
+{
+	MYSQL *db = NULL,mysql;
+
+	mysql_init(&mysql);
+	db = mysql_real_connect(&mysql, DB_SERVER, DB_USER, DB_PWD, DB_NAME,0,0,0);
+
+	if(db == NULL){
+		logError(mysql_error(&mysql));
+		goto ERROR;
+	}
+
+	char query_string[4096 * 100];
+	memset(query_string, 0, 4096 * 100);
+	snprintf(query_string, 4096 * 100, "INSERT INTO raw_data(datatime,value)VALUES('%s','%s')" ,key ,value);
+	logDebug("%s",query_string);
+	if(save_mysql(db,query_string) != 0){
+		goto ERROR;
+	}
+	
+	char *line_start = value;
+	char *line_end = NULL;
+	char *equal_sign = NULL;
+	int group_id = 1,prev_group = 1;
+	int storage_id = 1,prev_storage = 1;
+	char *ip = NULL;
+	int total = 0;
+	int free = 0;
+
+	while(*line_start != 0)
+	{
+		line_end = NULL;
+		equal_sign = NULL;
+
+		line_end = strchr(line_start, '\n');
+
+		if(strncmp(line_start, "Group ",strlen("Group")) == 0){
+			prev_group = group_id;
+			group_id = strtol(line_start + 6,NULL,10);
+		}
+		if(strncmp(line_start, "\tStorage ",strlen("\tStorage ")) == 0){
+			prev_storage = storage_id;
+			storage_id = strtol(line_start + 9,NULL,10);
+			if(!(group_id == 1 && storage_id == 1)){
+				snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , prev_group, prev_storage, ip, total, free);
+				logInfo("%s",query_string);
+				save_mysql(db,query_string);
+			}
+		}
+		if(strncmp(line_start, "\t\tip_addr ",strlen("\t\tip_addr ")) == 0){
+			ip = line_start + 12;
+			*line_end = '\0';
+		}
+		if(strncmp(line_start, "\t\ttotal storage ",strlen("\t\ttotal storage ")) == 0){
+			total = strtol(line_start + 18,NULL,10);
+		}
+		if(strncmp(line_start, "\t\tfree storage ",strlen("\t\tfree storage ")) == 0){
+			free = strtol(line_start + 17,NULL,10);
+		}
+		line_start = line_end + 1;
+	}
+	snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , group_id, storage_id, ip, total, free);
+	logInfo("%s",query_string);
+	save_mysql(db,query_string);
+	
 	mysql_close(db);
 	return 0;
 ERROR:
@@ -583,10 +673,10 @@ ERROR:
 #endif
 
 static void* save(time_t job_time,void *arg) {
-	char output_str[4096*10];
+	char output_str[4096*100];
 	char key[20];
 	int result;
-	memset(output_str,0,4096*10);
+	memset(output_str,0,4096*100);
 	memset(key,0,20);
 
 	timetostr(&job_time,key);
@@ -625,12 +715,70 @@ static void* save(time_t job_time,void *arg) {
 	return NULL;
 }
 
+static void daemonize()
+{
+	int fd0, fd1, fd2;
+	pid_t pid;
+	struct rlimit rlimit;
+
+
+	if(getrlimit(RLIMIT_NOFILE, &rlimit) < 0){
+		fprintf(stderr, "can not get file limit.\n");
+		exit(1);
+	}
+
+	if ((pid = fork()) < 0){
+		fprintf(stderr, "can not fork.\n");
+		exit(1);
+	} else if (pid != 0){  /* parent process */
+		exit(0);
+	}
+	setsid();
+	if((pid = fork()) != 0) 
+		exit(0);
+	else if(pid < 0) 
+		exit(1);
+
+	/*      
+	 * if (chdir("/") < 0){
+	 *      fprintf(stderr, ": can not change directory to /\n");
+	 *      exit(1);
+	 * }
+	 */
+
+	if (rlimit.rlim_max == RLIM_INFINITY)
+		rlimit.rlim_max = 1024;
+	int i;
+	for (i = 0; i < rlimit.rlim_max; i ++){
+		close(i);
+	}
+
+	umask(0);
+
+	fd0 = open("/dev/null", O_RDWR);
+	fd1 = dup(0);
+	fd2 = dup(0);
+	if (fd0 != 0 || fd1 != 1 || fd2 != 2){
+		fprintf(stderr, "unexpected file descriptors after daemonizing %d %d %d\n", fd0, fd1, fd2);
+		exit(1);
+	}
+	fprintf(stderr, "start.\n");
+}
+
 int main()
 {
+	daemonize();
 	log_init();
 	g_log_context.log_level = LOG_INFO;
 	
 	config("fdfs_jobs_monitor.config", g_config_list, sizeof(g_config_list)/sizeof(struct configItem));
+
+	g_log_fd = open(LOG_NAME,O_WRONLY | O_APPEND | O_CREAT);
+	if(g_log_fd == 0){
+		logError("can't open log file %s",LOG_NAME);
+		return 1;
+	}
+	g_log_context.log_fd = g_log_fd;
 
 	struct job job;
 	job_service(&job);
