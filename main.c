@@ -1,6 +1,5 @@
 #include "jobs.h"
 
-#include <leveldb/c.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -483,6 +482,7 @@ static int list_all_groups(const char *group_name,char *output_str)
 }
 
 #ifdef USE_LEVEL_DB
+#include <leveldb/c.h>
 static int save_db(char* key,char* value)
 {
 	char *err = NULL;
