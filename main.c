@@ -635,13 +635,19 @@ static int save_db(char* key,char* value)
 		line_end = strchr(line_start, '\n');
 
 		if(strncmp(line_start, "Group ",strlen("Group")) == 0){
-			prev_group = group_id;
 			group_id = strtol(line_start + 6,NULL,10);
 		}
 		if(strncmp(line_start, "\tStorage ",strlen("\tStorage ")) == 0){
 			prev_storage = storage_id;
 			storage_id = strtol(line_start + 9,NULL,10);
 			if(!(group_id == 1 && storage_id == 1)){
+				if(storage_id == 1){ 
+					prev_group = group_id - 1;
+				}   
+				else{ 
+					prev_group = group_id;
+					prev_storage = storage_id - 1;
+				}
 				snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , prev_group, prev_storage, ip, total, free);
 				logInfo("%s",query_string);
 				save_mysql(db,query_string);
@@ -662,7 +668,7 @@ static int save_db(char* key,char* value)
 	snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , group_id, storage_id, ip, total, free);
 	logInfo("%s",query_string);
 	save_mysql(db,query_string);
-	
+
 	mysql_close(db);
 	return 0;
 ERROR:
@@ -690,8 +696,8 @@ static void* save(time_t job_time,void *arg) {
 		srand(time(NULL));
 		rand();  //discard the first
 		g_tracker_group.server_index = (int)( \
-			(g_tracker_group.server_count * (double)rand()) \
-			/ (double)RAND_MAX);
+				(g_tracker_group.server_count * (double)rand()) \
+				/ (double)RAND_MAX);
 	}
 
 	sprintf(output_str,"%sserver_count=%d, server_index=%d\n", output_str, g_tracker_group.server_count, g_tracker_group.server_index);
@@ -703,12 +709,12 @@ static void* save(time_t job_time,void *arg) {
 		return NULL;
 	}
 	sprintf(output_str,"%s\ntracker server is %s:%d\n\n", output_str, pTrackerServer->ip_addr, pTrackerServer->port);
-	
+
 	list_all_groups(NULL,output_str);
 
 	tracker_disconnect_server_ex(pTrackerServer, true);
 	fdfs_client_destroy();
-	
+
 	if(save_db(key,output_str) != 0){
 		return NULL;
 	}
@@ -770,7 +776,7 @@ int main()
 	daemonize();
 	log_init();
 	g_log_context.log_level = LOG_INFO;
-	
+
 	config("fdfs_jobs_monitor.config", g_config_list, sizeof(g_config_list)/sizeof(struct configItem));
 
 	g_log_fd = open(LOG_NAME,O_WRONLY | O_APPEND | O_CREAT);
