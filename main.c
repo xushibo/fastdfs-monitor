@@ -463,7 +463,6 @@ static int list_all_groups(const char *group_name,char *output_str)
 		{
 			sprintf(output_str, "%s\nGroup %d:\n",output_str, ++i);
 			list_storages(pGroupStat,output_str);
-			break;
 		}
 	}
 	else

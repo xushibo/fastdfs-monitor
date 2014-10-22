@@ -3,5 +3,5 @@
 #	-g -O -DDEBUG_FLAG -DOS_LINUX -DIOEVENT_USE_EPOLL -o fdfs_jobs_monitor jobs.c config.c main.c
 
 #for mysql
-gcc -Wall -std=c99 -DUSE_MYSQL -D_XOPEN_SOURCE -lpthread -I mysql_headers -I fdfs_headers -lfdfsclient -lmysqlclient -lfastcommon\
-	-g -O -DDEBUG_FLAG -DOS_LINUX -DIOEVENT_USE_EPOLL -o fdfs_jobs_monitor jobs.c config.c main.c
+gcc -g -Wall -std=c99 -DUSE_MYSQL -D_XOPEN_SOURCE -lpthread -I mysql_headers -I fdfs_headers -lfdfsclient -lmysqlclient -lfastcommon\
+	-O -DDEBUG_FLAG -DOS_LINUX -DIOEVENT_USE_EPOLL -o fdfs_jobs_monitor jobs.c config.c main.c
