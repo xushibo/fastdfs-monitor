@@ -916,8 +916,6 @@ int main()
 	}
 	g_log_context.log_fd = g_log_fd;
 
-	save(123,NULL);
-	return 0;
 	struct job job;
 	job_service(&job);
 	job.call = save;
