@@ -750,7 +750,7 @@ static int save_db(char* key,char* value)
 				snprintf(query_string,SQL_BUF_LEN,"%s%s)values('%s',%d,%d," ,temp_str,g_fdfs_table[index].insert_key,key,prev_group,prev_storage);
 				for(index = 0;index != 45;++index){
 					strcpy(temp_str,query_string);
-					if(index != 0 && index != 1 && index != 2 && index != 3 && index != 44){
+					if(index != 0 && index != 1 && index != 2 && index != 3 && index != 8 && index != 44){
 						snprintf(query_string,SQL_BUF_LEN,"%s%ld,",temp_str,strtol(g_fdfs_table[index].value,0,10));
 						continue ;
 					}
@@ -787,7 +787,7 @@ static int save_db(char* key,char* value)
 	snprintf(query_string,SQL_BUF_LEN,"%s%s)values('%s',%d,%d," ,temp_str,g_fdfs_table[index].insert_key,key,group_id,storage_id);
 	for(index = 0;index != 45;++index){
 		strcpy(temp_str,query_string);
-		if(index != 0 && index != 1 && index != 2 && index != 3 && index != 44){
+		if(index != 0 && index != 1 && index != 2 && index != 3 && index != 8 && index != 44){
 			snprintf(query_string,SQL_BUF_LEN,"%s%ld,",temp_str,strtol(g_fdfs_table[index].value,0,10));
 			continue ;
 		}
