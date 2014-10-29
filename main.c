@@ -541,26 +541,58 @@ datatime VARCHAR(32) not null,
 value VARCHAR(409600) not null,
 PRIMARY KEY(id)
 )DEFAULT charset=utf8;
-drop table user;
-create table user(
-username varchar(16) primary key,
-password varchar(16) not null
-);
 drop table storage;
 create table storage(
 id bigint AUTO_INCREMENT primary key,
-time varchar(32)not null,
+time varchar(32) not null,
 groupId int not null,
 serverId int not null,
-ip varchar(256),
-total int,
-free int,
-threshold int
-);
-drop table groupStorage;
-create table groupStorage(
-groupId int primary key,
-groupThreshold int
+ip_addr varchar(256),
+version varchar(32),
+join_time varchar(32),
+up_time varchar(32),
+total_storage int,
+free_storage int,
+upload_priority int,
+store_path_count int,
+storage_port varchar(8),
+connection_alloc_count int,
+connection_current_count int,
+connection_max_count int,
+total_upload_count int,
+success_upload_count int,
+total_append_count int,
+success_append_count int,
+total_modify_count int,
+success_modify_count int,
+total_truncate_count int,
+success_truncate_count int,
+total_set_meta_count int,
+success_set_meta_count int,
+total_delete_count int,
+success_delete_count int,
+total_download_count int,
+success_download_count int,
+total_get_meta_count int,
+success_get_meta_count int,
+total_create_link_count int,
+success_create_link_count int,
+total_delete_link_count int,
+success_delete_link_count int,
+total_upload_bytes bigint,
+success_upload_bytes bigint,
+total_append_bytes bigint,
+success_append_bytes bigint,
+total_modify_bytes bigint,
+success_modify_bytes bigint,
+total_download_bytes bigint,
+success_download_bytes bigint,
+total_sync_in_bytes bigint,
+success_sync_in_bytes bigint,
+total_sync_out_bytes bigint,
+success_sync_out_bytes bigint,
+last_heart_beat_time varchar(32),
+last_synced_timestamp varchar(32)
 );
 */
 
@@ -598,6 +630,64 @@ ERROR:
 	return -1;
 }
 
+struct fdfs_item
+{
+	char key[64];
+	char insert_key[64];
+	char value[64];
+};
+
+struct fdfs_item g_fdfs_table[] = {
+	{"ip_addr", "ip_addr", ""},
+	{"version", "version", ""},
+	{"join time", "join_time", ""},
+	{"up time", "up_time", ""},
+	{"total storage", "total_storage", ""},
+	{"free storage", "free_storage", ""},
+	{"upload priority", "upload_priority", ""},
+	{"store_path_count", "store_path_count ", ""},
+	{"storage_port", "storage_port", ""},
+	{"connection.alloc_count", "connection_alloc_count", ""},
+	{"connection.current_count", "connection_current_count", ""},
+	{"connection.max_count", "connection_max_count", ""},
+	{"total_upload_count", "total_upload_count", ""},
+	{"success_upload_count", "success_upload_count", ""},
+	{"total_append_count", "total_append_count", ""},
+	{"success_append_count", "success_append_count", ""},
+	{"total_modify_count", "total_modify_count", ""},
+	{"success_modify_count", "success_modify_count", ""},
+	{"total_truncate_count", "total_truncate_count", ""},
+	{"success_truncate_count", "success_truncate_count", ""},
+	{"total_set_meta_count", "total_set_meta_count", ""},
+	{"success_set_meta_count", "success_set_meta_count", ""},
+	{"total_delete_count", "total_delete_count", ""},
+	{"success_delete_count", "success_delete_count", ""},
+	{"total_download_count", "total_download_count", ""},
+	{"success_download_count", "success_download_count", ""},
+	{"total_get_meta_count", "total_get_meta_count", ""},
+	{"success_get_meta_count", "success_get_meta_count", ""},
+	{"total_create_link_count", "total_create_link_count", ""},
+	{"success_create_link_count", "success_create_link_count", ""},
+	{"total_delete_link_count", "total_delete_link_count", ""},
+	{"success_delete_link_count", "success_delete_link_count", ""},
+	{"total_upload_bytes", "total_upload_bytes", ""},
+	{"success_upload_bytes", "success_upload_bytes", ""},
+	{"total_append_bytes", "total_append_bytes", ""},
+	{"success_append_bytes", "success_append_bytes", ""},
+	{"total_modify_bytes", "total_modify_bytes", ""},
+	{"success_modify_bytes", "success_modify_bytes", ""},
+	{"total_download_bytes", "total_download_bytes", ""},
+	{"success_download_bytes", "success_download_bytes", ""},
+	{"total_sync_in_bytes", "total_sync_in_bytes", ""},
+	{"success_sync_in_bytes", "success_sync_in_bytes",  ""},
+	{"total_sync_out_bytes", "total_sync_out_bytes", ""},
+	{"success_sync_out_bytes", "success_sync_out_bytes", ""},
+	{"last_heart_beat_time", "last_heart_beat_time", ""},
+	{"last_synced_timestamp", "last_synced_timestamp", ""}
+};
+
+#define SQL_BUF_LEN 4096*100
+
 static int save_db(char* key,char* value)
 {
 	MYSQL *db = NULL,mysql;
@@ -610,9 +700,10 @@ static int save_db(char* key,char* value)
 		goto ERROR;
 	}
 
-	char query_string[4096 * 100];
-	memset(query_string, 0, 4096 * 100);
-	snprintf(query_string, 4096 * 100, "INSERT INTO raw_data(datatime,value)VALUES('%s','%s')" ,key ,value);
+	char query_string[SQL_BUF_LEN];
+	char temp_str[SQL_BUF_LEN];
+	memset(query_string, 0, SQL_BUF_LEN);
+	snprintf(query_string, SQL_BUF_LEN, "INSERT INTO raw_data(datatime,value)VALUES('%s','%s')" ,key ,value);
 	logDebug("%s",query_string);
 	if(save_mysql(db,query_string) != 0){
 		goto ERROR;
@@ -623,10 +714,12 @@ static int save_db(char* key,char* value)
 	char *equal_sign = NULL;
 	int group_id = 1,prev_group = 1;
 	int storage_id = 1,prev_storage = 1;
-	char *ip = NULL;
-	int total = 0;
-	int free = 0;
-
+	int index;
+	char *find_str;
+	
+	for(index = 0;index != sizeof(g_fdfs_table)/sizeof(struct fdfs_item);++index){
+		strcpy(g_fdfs_table[index].value,"0");
+	}
 	while(*line_start != 0)
 	{
 		line_end = NULL;
@@ -648,24 +741,61 @@ static int save_db(char* key,char* value)
 					prev_group = group_id;
 					prev_storage = storage_id - 1;
 				}
-				snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , prev_group, prev_storage, ip, total, free);
+				snprintf(query_string, SQL_BUF_LEN, "insert into storage(time,groupid,serverid,");
+				for(index = 0;index != 45;++index){
+					strcpy(temp_str,query_string);
+					snprintf(query_string,SQL_BUF_LEN,"%s%s,",temp_str,g_fdfs_table[index].insert_key);
+				}
+				strcpy(temp_str,query_string);
+				snprintf(query_string,SQL_BUF_LEN,"%s%s)values('%s',%d,%d," ,temp_str,g_fdfs_table[index].insert_key,key,prev_group,prev_storage);
+				for(index = 0;index != 45;++index){
+					strcpy(temp_str,query_string);
+					if(index != 0 && index != 1 && index != 2 && index != 3 && index != 44){
+						snprintf(query_string,SQL_BUF_LEN,"%s%ld,",temp_str,strtol(g_fdfs_table[index].value,0,10));
+						continue ;
+					}
+					snprintf(query_string,SQL_BUF_LEN,"%s'%s',",temp_str,g_fdfs_table[index].value);
+				}
+				strcpy(temp_str,query_string);
+				snprintf(query_string,SQL_BUF_LEN,"%s'%s')" ,temp_str,g_fdfs_table[index].value);
 				logInfo("%s",query_string);
 				save_mysql(db,query_string);
+				for(index = 0;index != sizeof(g_fdfs_table)/sizeof(struct fdfs_item);++index){
+					memset(g_fdfs_table[index].value,0,sizeof(g_fdfs_table[index].value));
+					strcpy(g_fdfs_table[index].value,"0");
+				}
 			}
 		}
-		if(strncmp(line_start, "\t\tip_addr ",strlen("\t\tip_addr ")) == 0){
-			ip = line_start + 12;
-			*line_end = '\0';
-		}
-		if(strncmp(line_start, "\t\ttotal storage ",strlen("\t\ttotal storage ")) == 0){
-			total = strtol(line_start + 18,NULL,10);
-		}
-		if(strncmp(line_start, "\t\tfree storage ",strlen("\t\tfree storage ")) == 0){
-			free = strtol(line_start + 17,NULL,10);
+		for(index = 0;index != sizeof(g_fdfs_table)/sizeof(struct fdfs_item);++index){
+			find_str = NULL;
+			find_str = strstr(line_start,g_fdfs_table[index].key);	
+			if(find_str != NULL && (find_str - line_start) < 5){
+				//printf("%d\t%s\t%.*s\t%.*s\t%ld\n\n",index,g_fdfs_table[index].key,20,temp_str,50,line_start,strchr(line_start,'\n')-strchr(line_start,'='));
+				//fflush(stdout);
+				strncpy(g_fdfs_table[index].value,strchr(line_start,'=') + 2,strchr(line_start,'\n')-strchr(line_start,'=') - 2);
+				//printf("%s\n",g_fdfs_table[index].value);
+			}
 		}
 		line_start = line_end + 1;
 	}
-	snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , group_id, storage_id, ip, total, free);
+	snprintf(query_string, SQL_BUF_LEN, "insert into storage(time,groupid,serverid,");
+	for(index = 0;index != 45;++index){
+		strcpy(temp_str,query_string);
+		snprintf(query_string,SQL_BUF_LEN,"%s%s,",temp_str,g_fdfs_table[index].insert_key);
+	}
+	strcpy(temp_str,query_string);
+	snprintf(query_string,SQL_BUF_LEN,"%s%s)values('%s',%d,%d," ,temp_str,g_fdfs_table[index].insert_key,key,group_id,storage_id);
+	for(index = 0;index != 45;++index){
+		strcpy(temp_str,query_string);
+		if(index != 0 && index != 1 && index != 2 && index != 3 && index != 44){
+			snprintf(query_string,SQL_BUF_LEN,"%s%ld,",temp_str,strtol(g_fdfs_table[index].value,0,10));
+			continue ;
+		}
+		snprintf(query_string,SQL_BUF_LEN,"%s'%s',",temp_str,g_fdfs_table[index].value);
+	}
+	strcpy(temp_str,query_string);
+	snprintf(query_string,SQL_BUF_LEN,"%s'%s')" ,temp_str,g_fdfs_table[index].value);
+	//snprintf(query_string, 4096 * 100, "INSERT INTO storage(time,groupId,serverId,ip,total,free)VALUES('%s',%d,%d,'%s',%d,%d)" ,key , group_id, storage_id, ip, total, free);
 	logInfo("%s",query_string);
 	save_mysql(db,query_string);
 
@@ -773,7 +903,7 @@ static void daemonize()
 
 int main()
 {
-	daemonize();
+	//daemonize();
 	log_init();
 	g_log_context.log_level = LOG_INFO;
 
@@ -786,6 +916,8 @@ int main()
 	}
 	g_log_context.log_fd = g_log_fd;
 
+	save(123,NULL);
+	return 0;
 	struct job job;
 	job_service(&job);
 	job.call = save;

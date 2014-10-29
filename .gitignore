@@ -2,3 +2,4 @@ ldb_fdfs_monitor/*
 py_fdfs_monitor.so
 *.log
 fdfs_monitor
+fdfs_jobs_monitor
