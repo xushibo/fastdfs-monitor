@@ -903,7 +903,7 @@ static void daemonize()
 
 int main()
 {
-	//daemonize();
+	daemonize();
 	log_init();
 	g_log_context.log_level = LOG_INFO;
 
